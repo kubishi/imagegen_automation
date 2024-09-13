@@ -14,42 +14,58 @@ client = openai.Client(api_key=os.getenv("OPEN_API_KEY"))
 
 
 def create_prompt_with_rules(prompt: str, rules: dict) -> str:
-    rule_str = json.dumps(rules, indent=2)
-    return (
-        f"{prompt} : \n{rule_str}"
-    )
+    return json.dumps({
+        "prompt": prompt,
+        "rules": rules
+    })
 
-    funcs = [
-        {
-            "name": "choosing_rules",
-            "description": "Choose rules for prompt which could generate more realistic image",
+
+tools = [
+    {
+        "type": "function",
+        "function": {
+            "name": "choose_rules",
+            "description": "Choose rules for prompt which could generate an appropriate image",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "rules": {
-                        "type": "list",
-                        "description": "Choose from list of rules which could make the prompt better in order to get a more accurate image."
+                        "type": "array",
+                        "description": "List of rules which could make the prompt better in order to get a more accurate image.",
+                        "items": {
+                            "type": "string"
+                        }
                     }
                 },
                 "required": ["rules"],
-                "additionProperties": False
+                "additionalProperties": False
             }
         }
-    ]
-
-
-modified_prompt = create_prompt_with_rules(prompt, rules)
-
-messages = [
-    {"role": "user", "content": modified_prompt}
+    }
 ]
 
-response = client.chat.completions.create(
-    model="gpt-4o",
-    messages=messages
-)
 
-updated_prompt = response.choices[0].message.content
+def main():
+    modified_prompt = create_prompt_with_rules(prompt, rules)
 
+    messages = [
+        {"role": "system", "content": "Your job is to take user prompts and decide which rules should be applied to them so that the image generated is appropriate."},
+        {"role": "user", "content": modified_prompt}
+    ]
 
-print(updated_prompt)
+    response = client.chat.completions.create(
+        model="gpt-4o",
+        messages=messages,
+        tools=tools
+    )
+
+    rules = []
+    for tool_call in response.choices[0].message.tool_calls:
+        if tool_call.function.name == "choose_rules":
+            rules.extend(json.loads(tool_call.function.arguments)["rules"])
+
+    modified_prompt = f"{prompt}, " + ", ".join(rules)
+    print(f"Modified prompt: {modified_prompt}")
+
+if __name__ == "__main__":
+    main()
