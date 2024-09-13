@@ -43,11 +43,12 @@ tools = [
 
 def main():
     rules = ["no feather's should be involved",
-             "no short hair", "appropriate clothing"]
+             "no short hair", "appropriate clothing", "good background", "carrying a school bag", "crying"]
 
     prompt = "Give an image of a native american boy"
+    prompt_2 = "Give an image of a native american man dancing"
 
-    modified_prompt = create_prompt_with_rules(prompt, rules)
+    modified_prompt = create_prompt_with_rules(prompt_2, rules)
 
     messages = [
         {"role": "system", "content": "Your job is to take user prompts and decide which rules that are more important should be applied to them so that the image generated is appropriate."},
@@ -65,7 +66,7 @@ def main():
         if tool_call.function.name == "choose_rules":
             rules.extend(json.loads(tool_call.function.arguments)["rules"])
 
-    modified_prompt = f"{prompt}, " + ", ".join(rules)
+    modified_prompt = f"{prompt_2}, " + ", ".join(rules)
     print(f"Modified prompt: {modified_prompt}")
 
 
