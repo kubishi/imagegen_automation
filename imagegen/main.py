@@ -6,10 +6,6 @@ import openai
 load_dotenv()
 
 
-rules = ["no feather's should be involved",
-         "no short hair", "appropriate clothing"]
-prompt = "Give an image of a native american boy"
-
 client = openai.Client(api_key=os.getenv("OPEN_API_KEY"))
 
 
@@ -46,10 +42,15 @@ tools = [
 
 
 def main():
+    rules = ["no feather's should be involved",
+             "no short hair", "appropriate clothing"]
+
+    prompt = "Give an image of a native american boy"
+
     modified_prompt = create_prompt_with_rules(prompt, rules)
 
     messages = [
-        {"role": "system", "content": "Your job is to take user prompts and decide which rules should be applied to them so that the image generated is appropriate."},
+        {"role": "system", "content": "Your job is to take user prompts and decide which rules that are more important should be applied to them so that the image generated is appropriate."},
         {"role": "user", "content": modified_prompt}
     ]
 
@@ -66,6 +67,7 @@ def main():
 
     modified_prompt = f"{prompt}, " + ", ".join(rules)
     print(f"Modified prompt: {modified_prompt}")
+
 
 if __name__ == "__main__":
     main()
