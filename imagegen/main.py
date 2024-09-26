@@ -5,6 +5,8 @@ import openai
 import requests
 import pathlib
 from transformers import BlipProcessor, BlipForConditionalGeneration
+from PIL import Image
+from io import BytesIO
 import torch
 
 load_dotenv()
@@ -42,6 +44,14 @@ def generate_image(prompt: str, save_path: str):
     path = pathlib.Path(save_path)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(image.content)
+
+    return image_url
+
+
+def load_image_from_url(image_url: str):
+    response = requests.get(image_url)
+    img = Image.open(BytesIO(response.content)).convert("RGB")
+    return img
 
 
 def generate_prompt(image):
@@ -97,7 +107,14 @@ def rule_based(prompt: str, rules: list, save_path: str):
     modified_prompt = f"{prompt}, " + ", ".join(rules)
     print(f"Prompt: {prompt}")
     print(f"Rule based Modified Prompt: {modified_prompt}")
-    generate_image(modified_prompt, save_path)
+
+    image_url = generate_image(modified_prompt, save_path)
+
+    image = load_image_from_url(image_url)
+    description = generate_prompt(image)
+    print(f"Generated Description for rule based modifier: {description}")
+
+    return description
 
 
 def prompt_modifier(prompt: str, save_path: str):
@@ -118,13 +135,39 @@ def prompt_modifier(prompt: str, save_path: str):
     modified_prompt = response.choices[0].message.content
     print(f"Prompt: {prompt}")
     print(f"Prompt based Modified Prompt: {modified_prompt}")
-    generate_image(modified_prompt, save_path)
+
+    image_url = generate_image(modified_prompt, save_path)
+
+    image = load_image_from_url(image_url)
+    description = generate_prompt(image)
+    print(f"Generated Description for prompt modifier: {description}")
+
+    return description
+
+
+def ask_chatGPT(prompt, descriptions):
+    chat = f"The original prompt is:{
+        prompt}. These are two descriptions of the generated images:\n\n"
+    for i, desc in enumerate(descriptions):
+        chat += f"Image {i+1}: {desc}\n\n"
+
+    chat += "Which image is more accurate according to the prompt?"
+
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[
+            {"role": "system", "content": "You are a helpful assistant."},
+            {"role": "user", "content": chat}
+        ]
+    )
+
+    return response.choices[0].message.content
 
 
 def main():
-    prompt = "Give an image of a native american girl dancing"
+    prompt = "Give an image of an american man going to office in new york city"
 
-    rule_based(
+    rule_based_description = rule_based(
         prompt=prompt,
         rules=[
             "no feather's should be involved",
@@ -132,15 +175,20 @@ def main():
             "appropriate modern, business casual attire",
             "appropriate modern, casual beach attire",
             "good background",
-            "carrying a school bag"
+            "carrying a school bag",
+            "no traditional attire",
         ],
         save_path=f"{thisdir}/images/rule_based.png"
     )
 
-    prompt_modifier(
+    prompt_based_description = prompt_modifier(
         prompt=prompt,
         save_path=f"{thisdir}/images/prompt_modifier.png"
     )
+
+    result = ask_chatGPT(
+        prompt, [rule_based_description, prompt_based_description])
+    print(f"Result: {result}")
 
 
 if __name__ == "__main__":
