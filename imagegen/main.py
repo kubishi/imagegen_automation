@@ -4,12 +4,19 @@ import json
 import openai
 import requests
 import pathlib
+from transformers import BlipProcessor, BlipForConditionalGeneration
+import torch
 
 load_dotenv()
 
 
 thisdir = pathlib.Path(__file__).parent.absolute()
 client = openai.Client(api_key=os.getenv("OPEN_API_KEY"))
+
+processor = BlipProcessor.from_pretrained(
+    "salesforce/blip-image-captioning-base")
+model = BlipForConditionalGeneration.from_pretrained(
+    "salesforce/blip-image-captioning-base")
 
 
 def create_prompt_with_rules(prompt: str, rules: dict) -> str:
@@ -35,6 +42,14 @@ def generate_image(prompt: str, save_path: str):
     path = pathlib.Path(save_path)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(image.content)
+
+
+def generate_prompt(image):
+    inputs = processor(image, return_tensors="pt").to("cpu")
+    captions_ids = model.generate(**inputs)
+    caption = processor.decode(captions_ids[0], skip_special_tokens=True)
+    return caption
+
 
 def rule_based(prompt: str, rules: list, save_path: str):
     tools = [
@@ -81,15 +96,17 @@ def rule_based(prompt: str, rules: list, save_path: str):
 
     modified_prompt = f"{prompt}, " + ", ".join(rules)
     print(f"Prompt: {prompt}")
-    print(f"Modified Prompt: {modified_prompt}")
+    print(f"Rule based Modified Prompt: {modified_prompt}")
     generate_image(modified_prompt, save_path)
 
 
 def prompt_modifier(prompt: str, save_path: str):
     messages = [
-        {"role": "system", "content": "Your job is to take user prompts and modify them so that they are culturally sensitive and appropriate."},
+        {"role": "system", "content": "Your job is to take user prompts and modify them so that they are culturally sensitive and appropriate and accurate."},
         {"role": "user", "content": "A native american girl dancing"},
         {"role": "assistant", "content": "A native american girl dancing gracefully, with flowing movement and a joyful expression. She has long, flowing hair that moves with her, and she is wearing a colorful, flowing dress that twirls as she spins. The background is bright and lively, with soft lighting that highlights her movements. Her arms are outstretched, and the scene captures the elegance and energy of dance."},
+        {"role": "user", "content": "Give an image that is more realistic"},
+        {"role": "assistant", "content": "A realistic depiction of a Native American girl dancing in traditional attire. She is wearing an intricately beaded dress with fringes and vibrant colors that reflect her heritage. Her dark hair is braided and decorated with feathers, moving gracefully as she dances. Her expression is joyful, and her movements are fluid and energetic. The background features an outdoor setting with soft natural lighting, possibly during a cultural event, and trees or mountains in the distance. The scene should capture a lifelike and culturally authentic atmosphere."},
         {"role": "user", "content": prompt}
     ]
 
@@ -100,12 +117,13 @@ def prompt_modifier(prompt: str, save_path: str):
 
     modified_prompt = response.choices[0].message.content
     print(f"Prompt: {prompt}")
-    print(f"Modified Prompt: {modified_prompt}")
+    print(f"Prompt based Modified Prompt: {modified_prompt}")
     generate_image(modified_prompt, save_path)
-    
+
+
 def main():
-    prompt = "Give an image of a native american boy swimming"
-    
+    prompt = "Give an image of a native american girl dancing"
+
     rule_based(
         prompt=prompt,
         rules=[
@@ -116,13 +134,14 @@ def main():
             "good background",
             "carrying a school bag"
         ],
-        save_path=f"{thisdir}/images/rule_based.png"	
+        save_path=f"{thisdir}/images/rule_based.png"
     )
 
     prompt_modifier(
         prompt=prompt,
         save_path=f"{thisdir}/images/prompt_modifier.png"
     )
+
 
 if __name__ == "__main__":
     main()
