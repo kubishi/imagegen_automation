@@ -56,8 +56,9 @@ def load_image_from_url(image_url: str):
 
 def generate_prompt(image):
     inputs = processor(image, return_tensors="pt").to("cpu")
-    captions_ids = model.generate(**inputs)
-    caption = processor.decode(captions_ids[0], skip_special_tokens=True)
+    captions_ids = model.generate(**inputs, max_new_tokens=100)
+    caption = processor.decode(
+        captions_ids[0], skip_special_tokens=True, clean_up_tokenization_spaces=True)
     return caption
 
 
@@ -165,7 +166,7 @@ def ask_chatGPT(prompt, descriptions):
 
 
 def main():
-    prompt = "Give an image of an american man going to office in new york city"
+    prompt = "Give an image of a native american boy going to school in america"
 
     rule_based_description = rule_based(
         prompt=prompt,
