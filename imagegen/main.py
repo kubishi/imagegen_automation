@@ -1,3 +1,5 @@
+import logging
+from typing import List, Tuple
 from dotenv import load_dotenv  # type: ignore
 import os
 import json
@@ -61,69 +63,11 @@ def generate_prompt(image):
         captions_ids[0], skip_special_tokens=True, clean_up_tokenization_spaces=True)
     return caption
 
-
 def no_prompt_modifier(prompt: str, save_path: str):
     image_url = generate_image(prompt, save_path)
 
     image = load_image_from_url(image_url)
     description = generate_prompt(image)
-    # print(f"Generated Description for no prompt modifier: {description}")
-
-    return description
-
-
-def rule_based(prompt: str, rules: list, save_path: str):
-    tools = [
-        {
-            "type": "function",
-            "function": {
-                "name": "choose_rules",
-                "description": "Choose rules for prompt which could generate an appropriate image",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "rules": {
-                            "type": "array",
-                            "description": "List of rules which could make the prompt better in order to get a more accurate image.",
-                            "items": {
-                                "type": "string"
-                            }
-                        }
-                    },
-                    "required": ["rules"],
-                    "additionalProperties": False
-                }
-            }
-        }
-    ]
-
-    modified_prompt = create_prompt_with_rules(prompt, rules)
-
-    messages = [
-        {"role": "system", "content": "Your job is to take user prompts and decide which rules that are more important should be applied to them so that the image generated is appropriate."},
-        {"role": "user", "content": modified_prompt}
-    ]
-
-    response = client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=messages,
-        tools=tools
-    )
-
-    rules = []
-    for tool_call in response.choices[0].message.tool_calls:
-        if tool_call.function.name == "choose_rules":
-            rules.extend(json.loads(tool_call.function.arguments)["rules"])
-
-    modified_prompt = f"{prompt}, " + ", ".join(rules)
-    # print(f"Prompt: {prompt}")
-    # print(f"Rule based Modified Prompt: {modified_prompt}")
-
-    image_url = generate_image(modified_prompt, save_path)
-
-    image = load_image_from_url(image_url)
-    description = generate_prompt(image)
-    # print(f"Generated Description for rule based modifier: {description}")
 
     return description
 
@@ -159,19 +103,41 @@ def prompt_modifier(prompt: str, save_path: str):
     )
 
     modified_prompt = response.choices[0].message.content
-    # print(f"Prompt: {prompt}")
-    # print(f"Prompt based Modified Prompt: {modified_prompt}")
 
     image_url = generate_image(modified_prompt, save_path)
 
     image = load_image_from_url(image_url)
     description = generate_prompt(image)
-    # print(f"Generated Description for prompt modifier: {description}")
 
     return description
 
+def robot_answerer(prompt: str, question: str, previous_answers: List[Tuple[str, str]]) -> str:
+    messages = [ 
+        {
+            "role": "system",
+            "content": (
+                "You are a customer asking for an artist to generate an image. "
+                f"You have provided them with the prompt: \"{prompt}\". "
+                "Now you must answer their question to help them create the image. "
+                "Your goal is always to create culturally appropriate images."
+            )
+        }
+    ]
 
-def prompt_clarifier(prompt: str, save_path: str):
+    for q, a in previous_answers:
+        messages.append({"role": "user", "content": q})
+        messages.append({"role": "assistant", "content": a})
+    
+    messages.append({"role": "user", "content": question})
+
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=messages
+    )
+
+    return response.choices[0].message.content
+
+def prompt_clarifier(prompt: str, save_path: str, use_robot_answerer: bool = False):
     tools = [
         {
             "type": "function",
@@ -196,7 +162,11 @@ def prompt_clarifier(prompt: str, save_path: str):
     messages = [
         {
             "role": "system",
-            "content": "Your job is to take user prompts and clarify them as much as you can so that they are culturally appropriate and reflect the user's intent."
+            "content": (
+                "Your job is to take user prompts and clarify them as much as you can so that they are "
+                "culturally appropriate and reflect the user's intent. "
+                "After the user answers your questions, respond with only the modified prompt."
+            )
         },
         {
             'role': 'user',
@@ -204,8 +174,7 @@ def prompt_clarifier(prompt: str, save_path: str):
         }
     ]
 
-    responses = {}
-
+    responses: List[Tuple[str, str]] = []
     while True:
         response = client.chat.completions.create(
             model="gpt-4o-mini",
@@ -220,12 +189,15 @@ def prompt_clarifier(prompt: str, save_path: str):
         if response.choices[0].message.tool_calls:
             for tool_call in response.choices[0].message.tool_calls:
                 if tool_call.function.name == "ask_question":
-                    question = json.loads(tool_call.function.arguments)[
-                        "question"]
+                    question = json.loads(tool_call.function.arguments)["question"]
+                    if use_robot_answerer:
+                        answer = robot_answerer(prompt, question, responses)
+                    else:
+                        answer = input(f"Answer the question: {question}\n")
+                        
+                    logging.info(f"Question: {question}, Answer: {answer}")
 
-                    answer = input(f"Answer the question: {question}\n")
-
-                    responses[question] = answer
+                    responses.append((question, answer))
 
                     messages.append({
                         "role": "tool",
@@ -234,21 +206,18 @@ def prompt_clarifier(prompt: str, save_path: str):
                     })
         else:
             modified_prompt = response.choices[0].message.content
-
-            for q, ans in responses.items():
-                modified_prompt = modified_prompt.replace(q, ans)
+            
+            logging.info(f"Modified Prompt: {modified_prompt}")
 
             image_url = generate_image(modified_prompt, save_path)
             image = load_image_from_url(image_url)
             description = generate_prompt(image)
 
-            print("Final Description:", description)
+            logging.info("Final Description:" + description)
             return description
 
-
 def ask_chatGPT(prompt, descriptions):
-    chat = f"The original prompt is:{
-        prompt}. These are two descriptions of the generated images:\n\n"
+    chat = f"The original prompt is: {prompt}. These are two descriptions of the generated images:\n\n"
     for i, desc in enumerate(descriptions):
         chat += f"Image {i+1}: {desc}\n\n"
 
@@ -264,51 +233,22 @@ def ask_chatGPT(prompt, descriptions):
 
     return response.choices[0].message.content
 
-
 def compare():
     ethnicities = [
-        "African American",
         "Native American",
-        "Hispanic",
-        "Asian",
-        "Middle Eastern",
-        "Indian",
-        "Caucasian",
+        # "African American",
+        # "Hispanic",
+        # "Asian",
+        # "Middle Eastern",
+        # "Indian",
+        # "Caucasian",
     ]
     for ethnicity in ethnicities:
-        prompt = f"{
-            ethnicity} boy going to school, watercolor sketch style, bright colors"
+        prompt = f"{ethnicity} boy going to school, watercolor sketch style, bright colors"
 
         no_prompt_based_description = no_prompt_modifier(
             prompt=prompt,
             save_path=f"{thisdir}/images/{ethnicity}/no_prompt_modifier.png"
-        )
-
-        rule_based_description = rule_based(
-            prompt=prompt,
-            rules=[
-                "Modern urban setting",
-                "Traditional clothing styles",
-                "Authentic cultural patterns",
-                "Rural village landscape",
-                "Celebrating cultural festivals",
-                "Historical architecture details",
-                "Family gathering around a meal",
-                "Traditional art techniques",
-                "Natural, local environments",
-                "Contemporary street fashion",
-                "Cultural dance performance",
-                "Traditional crafts and artisans",
-                "Local market scene",
-                "Respectful use of sacred symbols",
-                "Culturally inspired interior design",
-                "Traditional musical instruments",
-                "Religious ceremony in progress",
-                "Ethnic jewelry and accessories",
-                "Regional food and cuisine",
-                "Culturally significant landmarks",
-            ],
-            save_path=f"{thisdir}/images/{ethnicity}/rule_based.png"
         )
 
         prompt_based_description = prompt_modifier(
@@ -320,7 +260,6 @@ def compare():
             prompt=prompt,
             descriptions=[
                 no_prompt_based_description,
-                rule_based_description,
                 prompt_based_description
             ]
         )
@@ -329,11 +268,13 @@ def compare():
 
 
 def main():
-    prompt = "A man going to the office in new york city, manhattan area"
+    logging.basicConfig(level=logging.INFO)
+    prompt = "A Native American man going to the office in new york city, manhattan area"
     itr = 0
     new_prompt = prompt_clarifier(
         prompt=prompt,
-        save_path=f"{thisdir}/images/prompt_clarifier_example{itr + 1}.png"
+        save_path=f"{thisdir}/images/prompt_clarifier_example{itr + 1}.png",
+        use_robot_answerer=True
     )
     print(f"New Prompt: {new_prompt}")
 
