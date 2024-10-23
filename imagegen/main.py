@@ -1,4 +1,5 @@
 import logging
+import random
 from typing import List, Tuple
 from dotenv import load_dotenv  # type: ignore
 import os
@@ -63,6 +64,7 @@ def generate_prompt(image):
         captions_ids[0], skip_special_tokens=True, clean_up_tokenization_spaces=True)
     return caption
 
+
 def no_prompt_modifier(prompt: str, save_path: str):
     image_url = generate_image(prompt, save_path)
 
@@ -111,8 +113,9 @@ def prompt_modifier(prompt: str, save_path: str):
 
     return description
 
+
 def robot_answerer(prompt: str, question: str, previous_answers: List[Tuple[str, str]]) -> str:
-    messages = [ 
+    messages = [
         {
             "role": "system",
             "content": (
@@ -127,7 +130,7 @@ def robot_answerer(prompt: str, question: str, previous_answers: List[Tuple[str,
     for q, a in previous_answers:
         messages.append({"role": "user", "content": q})
         messages.append({"role": "assistant", "content": a})
-    
+
     messages.append({"role": "user", "content": question})
 
     response = client.chat.completions.create(
@@ -136,6 +139,7 @@ def robot_answerer(prompt: str, question: str, previous_answers: List[Tuple[str,
     )
 
     return response.choices[0].message.content
+
 
 def prompt_clarifier(prompt: str, save_path: str, use_robot_answerer: bool = False):
     tools = [
@@ -175,6 +179,7 @@ def prompt_clarifier(prompt: str, save_path: str, use_robot_answerer: bool = Fal
     ]
 
     responses: List[Tuple[str, str]] = []
+    itr = 0
     while True:
         response = client.chat.completions.create(
             model="gpt-4o-mini",
@@ -189,12 +194,13 @@ def prompt_clarifier(prompt: str, save_path: str, use_robot_answerer: bool = Fal
         if response.choices[0].message.tool_calls:
             for tool_call in response.choices[0].message.tool_calls:
                 if tool_call.function.name == "ask_question":
-                    question = json.loads(tool_call.function.arguments)["question"]
+                    question = json.loads(tool_call.function.arguments)[
+                        "question"]
                     if use_robot_answerer:
                         answer = robot_answerer(prompt, question, responses)
                     else:
                         answer = input(f"Answer the question: {question}\n")
-                        
+
                     logging.info(f"Question: {question}, Answer: {answer}")
 
                     responses.append((question, answer))
@@ -206,18 +212,23 @@ def prompt_clarifier(prompt: str, save_path: str, use_robot_answerer: bool = Fal
                     })
         else:
             modified_prompt = response.choices[0].message.content
-            
+
             logging.info(f"Modified Prompt: {modified_prompt}")
 
-            image_url = generate_image(modified_prompt, save_path)
+            itr += 1
+            updated_save_path = f"{save_path}_{itr}.png"
+
+            image_url = generate_image(modified_prompt, updated_save_path)
             image = load_image_from_url(image_url)
             description = generate_prompt(image)
 
             logging.info("Final Description:" + description)
             return description
 
+
 def ask_chatGPT(prompt, descriptions):
-    chat = f"The original prompt is: {prompt}. These are two descriptions of the generated images:\n\n"
+    chat = f"The original prompt is: {
+        prompt}. These are two descriptions of the generated images:\n\n"
     for i, desc in enumerate(descriptions):
         chat += f"Image {i+1}: {desc}\n\n"
 
@@ -233,50 +244,62 @@ def ask_chatGPT(prompt, descriptions):
 
     return response.choices[0].message.content
 
-def compare():
-    ethnicities = [
-        "Native American",
-        # "African American",
-        # "Hispanic",
-        # "Asian",
-        # "Middle Eastern",
-        # "Indian",
-        # "Caucasian",
+
+def get_all_images(directory: str) -> List[str]:
+    return [
+        os.path.join(directory, f) for f in os.listdir(directory) if os.path.isfile(os.path.join(directory, f)) and (f.endswith('.png'))
     ]
-    for ethnicity in ethnicities:
-        prompt = f"{ethnicity} boy going to school, watercolor sketch style, bright colors"
 
-        no_prompt_based_description = no_prompt_modifier(
-            prompt=prompt,
-            save_path=f"{thisdir}/images/{ethnicity}/no_prompt_modifier.png"
-        )
 
-        prompt_based_description = prompt_modifier(
-            prompt=prompt,
-            save_path=f"{thisdir}/images/{ethnicity}/prompt_modifier.png"
-        )
+def select_random_images(directory: str, num_images: int = 2) -> List[str]:
+    selected_images = get_all_images(directory)
+    if len(selected_images) < num_images:
+        raise ValueError(
+            f"Directory {directory} does not contain enough images")
 
-        result = ask_chatGPT(
-            prompt=prompt,
-            descriptions=[
-                no_prompt_based_description,
-                prompt_based_description
-            ]
-        )
+    return random.sample(selected_images, num_images)
 
-        (thisdir / "images" / ethnicity / "result.txt").write_text(result)
+
+def compare(prompt: str):
+
+    prompt_claifier_description = prompt_clarifier(
+        prompt=prompt,
+        save_path=f"{thisdir}/images/prompt_clarifier_example",
+        use_robot_answerer=False
+    )
+
+    prompt_asnwere_description = prompt_clarifier(
+        prompt=prompt,
+        save_path=f"{thisdir}/images/prompt_answerer_example",
+        use_robot_answerer=True
+    )
+
+    result = ask_chatGPT(
+        prompt=prompt,
+        descriptions=[
+            prompt_claifier_description,
+            prompt_asnwere_description
+        ]
+    )
+
+    return result
 
 
 def main():
     logging.basicConfig(level=logging.INFO)
     prompt = "A Native American man going to the office in new york city, manhattan area"
-    itr = 0
-    new_prompt = prompt_clarifier(
-        prompt=prompt,
-        save_path=f"{thisdir}/images/prompt_clarifier_example{itr + 1}.png",
-        use_robot_answerer=True
-    )
-    print(f"New Prompt: {new_prompt}")
+
+    this_dir = f"{thisdir}/images"
+
+    try:
+        img = select_random_images(this_dir)
+        print(f"Images: {img}")
+    except ValueError as e:
+        print(e)
+
+    res = compare(prompt)
+
+    print(f"Result: {res}")
 
 
 if __name__ == "__main__":
