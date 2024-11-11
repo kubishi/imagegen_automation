@@ -11,7 +11,7 @@ dotenv.load_dotenv()
 thisdir = pathlib.Path(__file__).parent.absolute()
 client = openai.Client(api_key=os.getenv("OPEN_API_KEY"))
 
-API_TOKEN = "bTXrVANkuOc2N5BgHqxZ3HSAwmZTMiC0XtTWufrB"
+API_TOKEN = os.getenv("QUALTRICS_API_TOKEN")
 DATA_CENTER = "iad1"
 BASE_URL = f"https://{DATA_CENTER}.qualtrics.com/API/v3/surveys"
 LIBRARY_ID = "default"
@@ -33,8 +33,7 @@ def create_survey() -> str:
         print(f"Survey created with ID: {survey_id}")
         return survey_id
     else:
-        print(f"Failed to create survey: {
-              response.status_code} - {response.json()}")
+        print(f"Failed to create survey: {response.status_code} - {response.json()}")
         return ""
 
 
