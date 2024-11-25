@@ -12,6 +12,7 @@ dotenv.load_dotenv()
 thisdir = pathlib.Path(__file__).parent.absolute()
 client = openai.Client(api_key=os.getenv("OPEN_API_KEY"))
 
+
 def generate_image(prompt: str, save_path: str) -> None:
     response = client.images.generate(
         model="dall-e-3",
@@ -27,6 +28,7 @@ def generate_image(prompt: str, save_path: str) -> None:
     path = pathlib.Path(save_path)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(image.content)
+
 
 def modify_prompt(prompt: str, examples: List[Tuple[str, str]]) -> str:
     messages = [
@@ -68,13 +70,20 @@ def main():
     images_per_prompt = 3
     day = 1
 
-    prompts_for_day = prompts[(day - 1) * prompts_per_day:day * prompts_per_day]
+    prompts_for_day = prompts[(
+        day - 1) * prompts_per_day:day * prompts_per_day]
     print(prompts_for_day)
 
-    data: List[Dict[str, Union[str, int]]] = json.loads((thisdir / "data.json").read_text())
+    data: List[Dict[str, Union[str, int]]] = json.loads(
+        (thisdir / "data.json").read_text())
     num_examples = min(5, ((day-1)*prompts_per_day*images_per_prompt))
     # get top num_examples examples with most votes
-    examples = sorted(data, key=lambda x: x["votes"], reverse=True)[:num_examples]
+    examples = sorted(
+        # Filter out entries with None or missing 'votes'
+        [entry for entry in data if entry.get("votes") is not None],
+        key=lambda x: x["votes"],
+        reverse=True
+    )
 
     for prompt in prompts_for_day:
         prompt_num = prompts.index(prompt)
