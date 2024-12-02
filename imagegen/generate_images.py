@@ -109,3 +109,91 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+dotenv.load_dotenv()
+
+thisdir = pathlib.Path(__file__).parent.absolute()
+client = openai.Client(api_key=os.getenv("OPEN_API_KEY"))
+
+# Replace with your Qualtrics API details
+API_TOKEN = os.getenv("QUALTRICS_API_TOKEN")
+DATA_CENTER = "iad1"
+BASE_URL = f"https://iad1.qualtrics.com/API/v3/survey-definitions"
+LIBRARY_ID = "default"
+
+headers = {
+    "Accept": "application/json",
+    "Content-Type": "application/json",
+    "X-API-TOKEN": API_TOKEN,
+}
+
+
+def create_survey(survey_name, language, project_category):
+    """Create a survey in Qualtrics."""
+    # Payload for creating the survey
+    payload = {
+        "SurveyName": survey_name,
+        "Language": language,
+        "ProjectCategory": project_category,
+    }
+
+    # POST request to create the survey
+    response = requests.post(BASE_URL, headers=headers, json=payload)
+
+    # Process the response
+    if response.status_code == 200:
+        data = response.json()
+        survey_id = data.get("result", {}).get("SurveyID", "")
+        block_id = data.get("result", {}).get("DefaultBlockID", "")
+        print(f"Survey created successfully! Survey ID: {
+              survey_id}, Default Block ID: {block_id}")
+        return survey_id, block_id
+    else:
+        print(f"Failed to create survey. Response: {
+              response.status_code}, {response.text}")
+        return None
+
+
+def update_survey_questions(survey_id):
+    """Add questions to the survey."""
+    update_url = f'{BASE_URL}/surveys/{survey_id}/questions'
+
+    # Example question payload
+    payload = {
+        "questionType": {
+            "type": "MC",
+            "subType": "SingleAnswer"
+        },
+        "questionText": "What is your favorite programming language?",
+        "choices": {
+            "1": {"choiceText": "Python"},
+            "2": {"choiceText": "Java"},
+            "3": {"choiceText": "C++"},
+            "4": {"choiceText": "JavaScript"}
+        }
+    }
+
+    # API request to add a question
+    response = requests.post(update_url, headers=headers, json=payload)
+
+    # Handle the response
+    if response.status_code == 200:
+        print("Question added successfully!")
+    else:
+        print("Failed to add question")
+        print(f"Response: {response.status_code}, {response.text}")
+
+
+if __name__ == "__main__":
+    # Step 1: Create the survey
+    survey_name = "ImageGeneration Survey"
+    language = "EN"
+    project_category = "CORE"
+    survey_id = create_survey(survey_name, language=language,
+                              project_category=project_category)
+
+    print(survey_id)
+    # Step 2: Add questions (if survey creation was successful)
+    # if survey_id:
+    #     update_survey_questions(survey_id)

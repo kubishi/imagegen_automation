@@ -1,106 +1,181 @@
-import json
-import pathlib
-from typing import Callable, List
-import openai
-import dotenv
 import os
+import json
 import requests
 
-dotenv.load_dotenv()
-
-thisdir = pathlib.Path(__file__).parent.absolute()
-client = openai.Client(api_key=os.getenv("OPEN_API_KEY"))
-
+# Configuration
 API_TOKEN = os.getenv("QUALTRICS_API_TOKEN")
-DATA_CENTER = "iad1"
-BASE_URL = f"https://{DATA_CENTER}.qualtrics.com/API/v3/surveys"
-LIBRARY_ID = "default"
+DATA_CENTER = os.getenv("QUALTRICS_DATA_CENTER")
+BASE_URL = f"https://{DATA_CENTER}.qualtrics.com/API/v3"
+LIBRARY_ID = os.getenv("QUALTRICS_LIBRARY_ID")
+# File to save the uploaded image results
+RESULT_FILE = "uploaded_images_result.json"
+SURVEY_ID = os.getenv("QUALTRICS_SURVEY_ID")
 
-headers = {
-    "content-type": "multipart/form-data",
-    "x-api-token": API_TOKEN,
+# Headers for the graphics API request
+upload_graphics_headers = {
+    "accept": "application/json",
+    "X-API-TOKEN": API_TOKEN,
 }
 
 
-# Path to the directory containing images
-IMAGES_DIR = "/Users/kp/imagegen_automation/imagegen/images/day_1"
+def upload_single_image(image_path, image_name, content_type="image/png", folder=None):
+    """Upload a single image to the Qualtrics Graphics Library."""
+    # Qualtrics API endpoint
+    upload_url = f"{BASE_URL}/libraries/{LIBRARY_ID}/graphics"
 
-
-def get_all_image_paths(root_dir):
-
-    image_paths = []
-    for folder in os.listdir(root_dir):
-        folder_path = os.path.join(root_dir, folder)
-        if os.path.isdir(folder_path):
-            for file in os.listdir(folder_path):
-                if file.lower().endswith(('.png', '.jpg', '.jpeg', '.gif')):
-                    image_paths.append(os.path.join(folder_path, file))
-    return image_paths
-
-
-def upload_image_to_qualtrics(image_path):
-
-    upload_url = f"{BASE_URL}/libraries/{LIBRARY_ID}/files"
-    file_name = os.path.basename(image_path)
-    with open(image_path, "rb") as image_file:
+    # Prepare the multipart/form-data payload
+    with open(image_path, "rb") as img_file:
         files = {
-
-            "file": (file_name, image_file, "image/png"),
+            "file": (image_name, img_file, content_type),
         }
-        response = requests.post(upload_url, headers=headers, files=files)
-        print(files)
-        if response.status_code == 200:
 
-            return response.json()["result"]["id"]
-        elif not response.ok:
-            print(f"Error: {response.status_code} - {response.text}")
-            return None
+        response = requests.post(
+            upload_url, headers=upload_graphics_headers, files=files)
 
-
-def create_survey(image_ids):
-    """Create a survey with the uploaded images."""
-    survey_url = f"{BASE_URL}/surveys"
-    payload = {
-        "name": "Image Selection Experiment",
-        "isActive": True,
-        "questions": [],
-    }
-    for idx, image_id in enumerate(image_ids):
-        payload["questions"].append({
-            "questionText": f"Question {idx + 1}",
-            "questionType": "MC",
-            "choices": [{"choiceText": f"Choice {i + 1}"} for i in range(3)],
-            "answers": [{"image": {"id": image_id}}],
-        })
-    response = requests.post(survey_url, headers=headers, json=payload)
-    print("RESPONSE" + response.json())
     if response.status_code == 200:
-        survey_id = response.json()["result"]["id"]
-        print(f"Survey created successfully! Survey ID: {survey_id}")
-        return survey_id
+        result = response.json()
+        print(f"Image '{image_name}' uploaded successfully.")
+        return result
     else:
-        # print(f"Failed to create survey. Status Code: {response.status_code}")
-        # print(f"Response: {response.text}")
+        print(f"Failed to upload image '{
+              image_name}'. Status code: {response.status_code}")
+        print(f"Response: {response.text}")
         return None
 
 
-def main():
-    # Get all image paths
-    image_paths = get_all_image_paths(IMAGES_DIR)
-    print(f"Found {len(image_paths)} images.")
+def save_results_to_json(results):
+    with open(RESULT_FILE, "w") as file:
+        json.dump(results, file, indent=4)
+    print(f"Results saved to {RESULT_FILE}")
 
-    # Upload images to Qualtrics
-    image_ids = []
-    for image_path in image_paths:
-        image_id = upload_image_to_qualtrics(image_path)
-        if image_id:
-            image_ids.append(image_id)
 
-    # Create survey with the uploaded images
-    if image_ids:
-        create_survey(image_ids)
+def create_question_with_images(prompt, image_urls):
+    create_question_headers = {
+        "accept": "application/json",
+        "content-type": "application/json",
+        "X-API-TOKEN": API_TOKEN,
+    }
+    # print(image_urls)
+    question_payload = {
+        "ChoiceOrder": ["1", "2", "3"],
+        "Choices": {
+            "1": {
+                "Display": f"<img src='{image_urls[0]}' />"  # First image
+            },
+            "2": {
+                "Display": f"<img src='{image_urls[1]}' />"  # Second image
+            },
+            "3": {
+                "Display": f"<img src='{image_urls[2]}' />"  # Third image
+            },
+        },
+        "Configuration": {
+            "QuestionDescriptionOption": "UseText",
+            "Stack": False,
+            "StackItemsInGroups": False
+        },
+        "QuestionText": prompt,
+        "QuestionType": "PGR",  # PGR for progress bar
+        "Selector": "DragAndDrop",
+        "SubSelector": "NoColumns",
+        "Validation": {
+            "Settings": {
+                "ForceResponse": "OFF",
+                "Type": "None"
+            }
+        },
+
+        "NextChoiceId": 5,
+        "NextAnswerId": 4,
+        "Groups": [
+            "Appropriate",
+            "Not Appropriate",
+            "Unsure"
+        ],
+        "DataExportTag": "ImageAccuracyQuestion",
+        "NumberOfGroups": 3,
+
+    }
+
+    create_question_url = f"{
+        BASE_URL}/survey-definitions/{SURVEY_ID}/questions"
+    response = requests.post(
+        create_question_url, headers=create_question_headers, json=question_payload)
+
+    if response.status_code == 200:
+        question_id = response.json().get("result", {}).get("QuestionID")
+        print(f"Question created successfully: {question_id}")
+        return question_id
     else:
-        print("No images uploaded. Survey creation aborted.")
+        print(f"Failed to create question. Status code: {
+              response.status_code}")
+        print(f"Response: {response.text}")
+        return None
+
+
+def extract_result_ids_for_prompt(response_file, prompt_folder):
+    with open(response_file, "r") as file:
+        data = json.load(file)
+
+    result_ids = []
+    for entry in data:
+        if entry["prompt_folder"] == prompt_folder:
+            file_id = entry["result"]["result"]["id"]
+            result_ids.append(file_id)
+
+    return result_ids
+
+
+def process_images_and_create_question(image_folder, prompt, response_file, prompt_folder):
+    # Extract result IDs for the specified prompt folder
+    image_file_ids = extract_result_ids_for_prompt(
+        response_file, prompt_folder)
+
+    # Construct image URLs using the extracted result IDs
+    image_urls = [f"https://{DATA_CENTER}.qualtrics.com/ControlPanel/Graphic.php?IM={
+        file_id}" for file_id in image_file_ids]
+
+    # Create a question with the uploaded images
+    if len(image_urls) == 3:
+        create_question_with_images(prompt, image_urls)
+        print("Question created successfully.")
+
+
+def main():
+    # Base folder containing prompt folders
+    base_folder = "/Users/kp/imagegen_automation/imagegen/images/day_1"
+    prompt = "Which image is the most accurate representation of the prompt?"
+    prompt_folder = "prompt_1"
+    # Initialize a list to store results
+    # all_results = []
+    # image_folder = "/Users/kp/imagegen_automation/imagegen/images/day_1/prompt_0"
+    # prompt = "Which image is the most accurate representation of the prompt?"
+
+    # # Process the images and create the question
+    # process_images_and_create_question(image_folder, prompt)
+
+    # for prompt_folder in sorted(os.listdir(base_folder)):
+    #     prompt_path = os.path.join(base_folder, prompt_folder)
+    #     if os.path.isdir(prompt_path) and prompt_folder.startswith("prompt_"):
+    #         print(f"Processing folder: {prompt_folder}")
+
+    #         for image_name in sorted(os.listdir(prompt_path)):
+    #             if image_name.endswith((".png", ".jpg", ".jpeg")):
+    #                 image_path = os.path.join(prompt_path, image_name)
+    #                 result = upload_single_image(image_path, image_name)
+
+    #                 if result:
+    #                     all_results.append({
+    #                         "prompt_folder": prompt_folder,
+    #                         "image_name": image_name,
+    #                         "result": result,
+    #                     })
+
+    # # Save all results to a JSON file
+    # save_results_to_json(all_results)
+
+    process_images_and_create_question(
+        base_folder, prompt, RESULT_FILE, prompt_folder)
 
 
 if __name__ == "__main__":
