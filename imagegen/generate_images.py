@@ -70,12 +70,10 @@ def main():
     images_per_prompt = 3
     day = 1
 
-    prompts_for_day = prompts[(
-        day - 1) * prompts_per_day:day * prompts_per_day]
+    prompts_for_day = prompts[(day - 1) * prompts_per_day:day * prompts_per_day]
     print(prompts_for_day)
 
-    data: List[Dict[str, Union[str, int]]] = json.loads(
-        (thisdir / "data.json").read_text())
+    data: List[Dict[str, Union[str, int]]] = json.loads((thisdir / "data.json").read_text())
     num_examples = min(5, ((day-1)*prompts_per_day*images_per_prompt))
     # get top num_examples examples with most votes
     examples = sorted(

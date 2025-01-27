@@ -6,6 +6,8 @@ import requests
 import openai
 import os
 import dotenv
+import shutil
+import threading
 
 # Loading environment variables
 dotenv.load_dotenv()
@@ -39,21 +41,26 @@ def modify_prompt(prompt: str, examples: List[Dict[str, str]]) -> str:
         {
             "role": "system",
             "content": (
-                "You are a prompt modifier that changes user input prompts so that they are detailed and culturally appropriate."
+                "You are a prompt modifier that changes user input prompts so "
+                "that they are detailed and culturally appropriate, avoiding "
+                "stereotypes and assumptions."
             )
-        },
-        *[
-            {
-                "role": "user",
-                "content": f"{example['original_prompt']} -> {example['modified_prompt']}"
-            }
-            for example in examples
-        ],
-        {
-            "role": "user",
-            "content": prompt
         }
     ]
+    for example in examples:
+        messages.append({
+            "role": "user",
+            "content": example["original_prompt"]
+        })
+        messages.append({
+            "role": "assistant",
+            "content": example["modified_prompt"]
+        })
+    
+    messages.append({
+        "role": "user",
+        "content": prompt
+    })
 
     # saving the inout and output prompts
     (thisdir / "messages.json").write_text(json.dumps(messages, indent=4))
@@ -66,8 +73,22 @@ def modify_prompt(prompt: str, examples: List[Dict[str, str]]) -> str:
 
 
 # Ranking images randomly
-def rank_images(image_paths: List[str]) -> int:
-    return random.randint(0, len(image_paths) - 1)
+def rate_images(history: List[Dict[str, str]]) -> None:
+    for i, item in enumerate(history):
+        if not item.get("rating"):
+            print(f"Image: {item['image_path']}")
+            while True:
+                try:
+                    rating = input("Rate the image from 1 to 5: ")
+                    rating = int(rating)
+                    if rating < 1 or rating > 5:
+                        raise ValueError("Rating must be between 1 and 5")
+                    break
+                except ValueError as e:
+                    print(e)
+
+            history[i]["rating"] = rating
+            # history[i]["rating"] = random.randint(1, 5)
 
 
 # Sanitizing strings
@@ -76,46 +97,65 @@ def sanitize_string(s: str) -> str:
 
 
 # Defining the pipeline
-def pipeline(iterations: int, images_per_prompt: int) -> None:
-    prompts: List[str] = json.loads((thisdir / "prompts.json").read_text())
+def pipeline(iterations: int,
+             images_per_prompt: int,
+             best_n: int,
+             overwrite: bool = False) -> None:
+    prompt_path = thisdir / "prompts.json"
+    history_path = thisdir / "history.json"
+    images_path = thisdir / "images"
+
+    if overwrite:
+        if images_path.exists():
+            shutil.rmtree(images_path)
+        if history_path.exists():
+            history_path.write_text("[]")
+
+    prompts: List[str] = json.loads(prompt_path.read_text())
     history = []
 
-    for prompt in prompts:
-        current_prompt = prompt
-        for iteration in range(iterations):
-            print(f"Processing Iteration {
-                  iteration + 1} for prompt: {current_prompt}")
+    if history_path.exists():
+        history = json.loads(history_path.read_text())
 
-            modified_prompt = [modify_prompt(
-                current_prompt, history) for _ in range(images_per_prompt)]
+    best_examples = sorted(history, key=lambda x: x["rating"], reverse=True)[:best_n]
+    for prompt in prompts:
+        for iteration in range(iterations):
+            print(f"Processing Iteration {iteration + 1} for prompt: {prompt}")
+
+            modified_prompts = [modify_prompt(prompt, best_examples) for _ in range(images_per_prompt)]
 
             image_paths = []
-            for i, mod_prompt in enumerate(modified_prompt):
-                save_path = thisdir / \
-                    f"images/{sanitize_string(prompt)
-                              }/iteration_{iteration}/image_{i}.png"
-                generate_image(mod_prompt, save_path)
-                image_paths.append(str(save_path))
+            image_threads: List[threading.Thread] = []
+            for i, mod_prompt in enumerate(modified_prompts):
+                save_path = images_path / f"{sanitize_string(prompt)}/iteration_{iteration}/image_{i}.png"
+                if save_path.exists():
+                    print(f"Skipping image {save_path}")
+                    image_paths.append(str(save_path))
+                    continue
+
+                # generate_image(mod_prompt, save_path)
+                thread = threading.Thread(target=generate_image, args=(mod_prompt, save_path))
+                thread.start()
+                image_threads.append(thread)
 
                 history.append({
-                    "original_prompt": current_prompt,
+                    "iteration": iteration,
+                    "original_prompt": prompt,
                     "modified_prompt": mod_prompt,
                     "image_path": str(save_path)
                 })
+                history_path.write_text(json.dumps(history, indent=4))
 
-            best_image_idx = rank_images(image_paths)
-            print(f"Best image selected: {image_paths[best_image_idx]}")
+            for thread in image_threads:
+                thread.join()
 
-            current_prompt = modified_prompt[best_image_idx]
+            rate_images(history)
+            history_path.write_text(json.dumps(history, indent=4))
+            best_examples = sorted(history, key=lambda x: x["rating"], reverse=True)[:best_n]
 
-            (thisdir / "history.json").write_text(json.dumps(history, indent=4))
 
+def main():
+    pipeline(iterations=3, images_per_prompt=5, best_n=3, overwrite=True)
 
 if __name__ == "__main__":
-
-    json_file_path = "prompts.json"
-
-    iterations = 3
-    images_per_prompt = 5
-
-    pipeline(iterations, images_per_prompt)
+    main()
