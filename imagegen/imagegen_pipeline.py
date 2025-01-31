@@ -56,7 +56,7 @@ def modify_prompt(prompt: str, examples: List[Dict[str, str]]) -> str:
             "role": "assistant",
             "content": example["modified_prompt"]
         })
-    
+
     messages.append({
         "role": "user",
         "content": prompt
@@ -73,22 +73,30 @@ def modify_prompt(prompt: str, examples: List[Dict[str, str]]) -> str:
 
 
 # Ranking images randomly
-def rate_images(history: List[Dict[str, str]]) -> None:
+def rate_images(history: List[Dict[str, str]], num_users: int = 5) -> None:
     for i, item in enumerate(history):
         if not item.get("rating"):
             print(f"Image: {item['image_path']}")
-            while True:
-                try:
-                    rating = input("Rate the image from 1 to 5: ")
-                    rating = int(rating)
-                    if rating < 1 or rating > 5:
-                        raise ValueError("Rating must be between 1 and 5")
-                    break
-                except ValueError as e:
-                    print(e)
 
-            history[i]["rating"] = rating
-            # history[i]["rating"] = random.randint(1, 5)
+            ratings = []
+            for user in range(1, num_users + 1):
+                while True:
+                    try:
+                        rating = input(
+                            f"User {user}, rate the image (1 to 5): ")
+                        rating = int(rating)
+                        if rating < 1 or rating > 5:
+                            raise ValueError("Rating must be between 1 and 5.")
+                        ratings.append(rating)
+                        break
+                    except ValueError as e:
+                        print(e)
+
+            average_rating = sum(ratings) / len(ratings)
+            history[i]["ratings"] = ratings
+            history[i]["rating"] = average_rating
+            print(f"Image: {item['image_path']} | Ratings: {
+                  ratings} | Average Rating: {average_rating:.2f}")
 
 
 # Sanitizing strings
@@ -100,6 +108,7 @@ def sanitize_string(s: str) -> str:
 def pipeline(iterations: int,
              images_per_prompt: int,
              best_n: int,
+             num_users: int = 5,
              overwrite: bool = False) -> None:
     prompt_path = thisdir / "prompts.json"
     history_path = thisdir / "history.json"
@@ -117,24 +126,29 @@ def pipeline(iterations: int,
     if history_path.exists():
         history = json.loads(history_path.read_text())
 
-    best_examples = sorted(history, key=lambda x: x["rating"], reverse=True)[:best_n]
+    best_examples = sorted(
+        history, key=lambda x: x["rating"], reverse=True)[:best_n]
     for prompt in prompts:
         for iteration in range(iterations):
             print(f"Processing Iteration {iteration + 1} for prompt: {prompt}")
 
-            modified_prompts = [modify_prompt(prompt, best_examples) for _ in range(images_per_prompt)]
+            modified_prompts = [modify_prompt(
+                prompt, best_examples) for _ in range(images_per_prompt)]
 
             image_paths = []
             image_threads: List[threading.Thread] = []
             for i, mod_prompt in enumerate(modified_prompts):
-                save_path = images_path / f"{sanitize_string(prompt)}/iteration_{iteration}/image_{i}.png"
+                save_path = images_path / \
+                    f"{sanitize_string(
+                        prompt)}/iteration_{iteration}/image_{i}.png"
                 if save_path.exists():
                     print(f"Skipping image {save_path}")
                     image_paths.append(str(save_path))
                     continue
 
                 # generate_image(mod_prompt, save_path)
-                thread = threading.Thread(target=generate_image, args=(mod_prompt, save_path))
+                thread = threading.Thread(
+                    target=generate_image, args=(mod_prompt, save_path))
                 thread.start()
                 image_threads.append(thread)
 
@@ -149,13 +163,15 @@ def pipeline(iterations: int,
             for thread in image_threads:
                 thread.join()
 
-            rate_images(history)
+            rate_images(history, num_users=num_users)
             history_path.write_text(json.dumps(history, indent=4))
-            best_examples = sorted(history, key=lambda x: x["rating"], reverse=True)[:best_n]
+            best_examples = sorted(
+                history, key=lambda x: x["rating"], reverse=True)[:best_n]
 
 
 def main():
     pipeline(iterations=3, images_per_prompt=5, best_n=3, overwrite=True)
+
 
 if __name__ == "__main__":
     main()
