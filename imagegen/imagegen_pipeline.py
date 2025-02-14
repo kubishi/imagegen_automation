@@ -47,6 +47,7 @@ def generate_image(prompt: str, save_path: str) -> None:
 class Rating(BaseModel):
     explanation: str
     rating: int
+    summary: str
 
 
 def auto_rate(prompt: str,
@@ -94,30 +95,31 @@ def auto_rate(prompt: str,
 # Modifying user input prompts using OpenAI's GPT-4 model with the help of function calling OpenAI's API
 
 
-def modify_prompt(prompt: str, examples: List[Dict[str, str]]) -> str:
+def modify_prompt(prompt: str, examples: List[Dict[str, str]], summary: str) -> str:
     messages = [
         {
             "role": "system",
             "content": (
                 "You are a prompt modifier that changes user input prompts so "
                 "that they are detailed and culturally appropriate, avoiding "
-                "stereotypes and assumptions."
+                "stereotypes and assumptions. Use the provide summary according to the ratings provided to refine and improve the prompts"
             )
         }
     ]
     for example in examples:
+        # print(f"example: {example['ratings']}")
         messages.append({
             "role": "user",
-            "content": example["original_prompt"]
+            "content": f"Original Prompt: {example['original_prompt']}\nSummary: {summary}"
         })
         messages.append({
             "role": "assistant",
-            "content": example["modified_prompt"]
+            "content": f"Modified Prompt: {example['modified_prompt']}\nSummary: {summary}"
         })
 
     messages.append({
         "role": "user",
-        "content": prompt
+        "content": f" Prompt: {prompt}\n Summary: {summary}"
     })
 
     # saving the inout and output prompts
@@ -163,6 +165,28 @@ RatingFunc = Callable[[str, pathlib.Path], Rating]
 # Ranking images randomly
 
 
+def summarize_ratings(ratings: List[Rating]) -> str:
+    explanations = "".join([r.explanation for r in ratings])
+
+    summary_prompt = (
+        "Summarize the following feedback in a concise, structured manner "
+        "highlighting the key points about the image quality and cultural relevance and why it got this much rating: "
+        f"{explanations}"
+    )
+
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[
+            {
+                "role": "user",
+                "content": summary_prompt
+            }
+        ]
+    )
+
+    return response.choices[0].message.content
+
+
 def rate_images(history: List[Dict[str, str]],
                 num_users: int = 5,
                 rating_func: Union[RatingFunc, List[RatingFunc]] = auto_rate):
@@ -179,18 +203,21 @@ def rate_images(history: List[Dict[str, str]],
             for j in range(num_users):
                 rating = rating_func[j](
                     item["modified_prompt"], pathlib.Path(item["image_path"]))
+
                 ratings.append(rating)
+                # ratings.append(summary)
             average_rating = sum(
                 rating.rating for rating in ratings) / len(ratings)
             history[i]["ratings"] = [json.loads(
                 rating.model_dump_json()) for rating in ratings]
             history[i]["rating"] = average_rating
 
-            print(f"Image: {item['image_path']} | Ratings: {
-                  ratings} | Average Rating: {average_rating:.2f}")
+            print(f"Image: {item['image_path']} | Ratings: {ratings} | Average Rating: {average_rating:.2f}")
 
 
 # Sanitizing strings
+
+
 def sanitize_string(s: str) -> str:
     return s.replace(" ", "_").replace(",", "").replace(":", "").replace(";", "").replace(".", "").replace("?", "").replace("!", "")
 
@@ -218,12 +245,14 @@ def pipeline(prompts: List[str],
 
     best_examples = sorted(
         history, key=lambda x: x["rating"], reverse=True)[:best_n]
+    summary = best_examples[0]["summary"] if best_examples else ""
+    # print(summary)
     for prompt in prompts:
         for iteration in range(iterations):
             print(f"Processing Iteration {iteration + 1} for prompt: {prompt}")
 
             modified_prompts = [modify_prompt(
-                prompt, best_examples) for _ in range(images_per_prompt)]
+                prompt, best_examples, summary) for _ in range(images_per_prompt)]
 
             image_paths = []
             image_threads: List[threading.Thread] = []
@@ -246,7 +275,8 @@ def pipeline(prompts: List[str],
                     "iteration": iteration,
                     "original_prompt": prompt,
                     "modified_prompt": mod_prompt,
-                    "image_path": str(save_path)
+                    "image_path": str(save_path),
+
                 })
                 history_path.write_text(json.dumps(history, indent=4))
 
@@ -309,3 +339,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+

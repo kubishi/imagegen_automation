@@ -51,3 +51,16 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+# def rate_images(history: List[Dict[str, str]], num_users: int, rating_func: List[Callable[[str, pathlib.Path], Rating]]):
+#     for i, item in enumerate(history):
+#         if "ratings" not in item:
+#             ratings = [rating_func[j](item["modified_prompt"], pathlib.Path(
+#                 item["image_path"])) for j in range(num_users)]
+#             avg_rating = sum(r.rating for r in ratings) / len(ratings)
+#             summary = summarize_ratings(ratings)
+#             history[i].update({
+
+#                 "rating": avg_rating,
+#                 "summary": summary
+#             })
