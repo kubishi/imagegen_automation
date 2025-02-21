@@ -95,7 +95,7 @@ def auto_rate(prompt: str,
 # Modifying user input prompts using OpenAI's GPT-4 model with the help of function calling OpenAI's API
 
 
-def modify_prompt(prompt: str, examples: List[Dict[str, str]], summary: str) -> str:
+def modify_prompt(prompt: str, examples: List[Dict[str, str]], top_prompts: List[Dict[str, str]], summary: str) -> str:
     messages = [
         {
             "role": "system",
@@ -107,7 +107,7 @@ def modify_prompt(prompt: str, examples: List[Dict[str, str]], summary: str) -> 
         }
     ]
     for example in examples:
-        # print(f"example: {example['ratings']}")
+        
         messages.append({
             "role": "user",
             "content": f"Original Prompt: {example['original_prompt']}\nSummary: {summary}"
@@ -116,10 +116,16 @@ def modify_prompt(prompt: str, examples: List[Dict[str, str]], summary: str) -> 
             "role": "assistant",
             "content": f"Modified Prompt: {example['modified_prompt']}\nSummary: {summary}"
         })
-
+    
+    for top_prompt in top_prompts:
+        messages.append({
+            "role": "user",
+            "content": f"High rated Prompt: {top_prompt['modified_prompt']}\nRating: {top_prompt['rating']}\nReason: {top_prompt['summary']}"
+        })
+   
     messages.append({
         "role": "user",
-        "content": f" Prompt: {prompt}\n Summary: {summary}"
+        "content": f" Prompt: {prompt}\n"
     })
 
     # saving the inout and output prompts
@@ -162,14 +168,13 @@ def random_rate(prompt: str, image_path: pathlib.Path) -> Rating:
 
 
 RatingFunc = Callable[[str, pathlib.Path], Rating]
+
 # Ranking images randomly
-
-
 def summarize_ratings(ratings: List[Rating]) -> str:
     explanations = "".join([r.explanation for r in ratings])
 
     summary_prompt = (
-        "Summarize the following feedback in a concise, structured manner "
+        "Give a very short summary on the following feedback in a well structured manner "
         "highlighting the key points about the image quality and cultural relevance and why it got this much rating: "
         f"{explanations}"
     )
@@ -187,37 +192,47 @@ def summarize_ratings(ratings: List[Rating]) -> str:
     return response.choices[0].message.content
 
 
-def rate_images(history: List[Dict[str, str]],
-                num_users: int = 5,
-                rating_func: Union[RatingFunc, List[RatingFunc]] = auto_rate):
-    if not isinstance(rating_func, list):
-        rating_func = [rating_func] * num_users
-    if len(rating_func) < num_users:
-        raise ValueError(
-            "Number of rate functions must be greater than or equal to the number of users.")
+# def rate_images(history: List[Dict[str, str]],
+#                 num_users: int = 5,
+#                 rating_func: Union[RatingFunc, List[RatingFunc]] = auto_rate):
+#     if not isinstance(rating_func, list):
+#         rating_func = [rating_func] * num_users
+#     if len(rating_func) < num_users:
+#         raise ValueError(
+#             "Number of rate functions must be greater than or equal to the number of users.")
+#     for i, item in enumerate(history):
+#         if not item.get("rating"):
+#             print(f"Image: {item['image_path']}")
+
+#             ratings: List[Rating] = []
+#             for j in range(num_users):
+#                 rating = rating_func[j](
+#                     item["modified_prompt"], pathlib.Path(item["image_path"]))
+
+#                 ratings.append(rating)
+#                 # ratings.append(summary)
+#             average_rating = sum(
+#                 rating.rating for rating in ratings) / len(ratings)
+#             history[i]["ratings"] = [json.loads(
+#                 rating.model_dump_json()) for rating in ratings]
+#             history[i]["rating"] = average_rating
+
+#             print(f"Image: {item['image_path']} | Ratings: {ratings} | Average Rating: {average_rating:.2f}")
+
+def rate_images(history: List[Dict[str, str]], num_users: int, rating_func: List[Callable[[str, pathlib.Path], Rating]]):
     for i, item in enumerate(history):
-        if not item.get("rating"):
-            print(f"Image: {item['image_path']}")
-
-            ratings: List[Rating] = []
-            for j in range(num_users):
-                rating = rating_func[j](
-                    item["modified_prompt"], pathlib.Path(item["image_path"]))
-
-                ratings.append(rating)
-                # ratings.append(summary)
-            average_rating = sum(
-                rating.rating for rating in ratings) / len(ratings)
-            history[i]["ratings"] = [json.loads(
-                rating.model_dump_json()) for rating in ratings]
-            history[i]["rating"] = average_rating
-
-            print(f"Image: {item['image_path']} | Ratings: {ratings} | Average Rating: {average_rating:.2f}")
+        if "ratings" not in item:
+            ratings = [rating_func[j](item["modified_prompt"], pathlib.Path(item["image_path"])) for j in range(num_users)]
+            avg_rating = sum(r.rating for r in ratings) / len(ratings)
+            summary = summarize_ratings(ratings)
+            history[i].update({
+                "ratings": [r.model_dump() for r in ratings],
+                "rating": avg_rating,
+                "summary": summary
+            })
 
 
 # Sanitizing strings
-
-
 def sanitize_string(s: str) -> str:
     return s.replace(" ", "_").replace(",", "").replace(":", "").replace(";", "").replace(".", "").replace("?", "").replace("!", "")
 
@@ -250,10 +265,10 @@ def pipeline(prompts: List[str],
     for prompt in prompts:
         for iteration in range(iterations):
             print(f"Processing Iteration {iteration + 1} for prompt: {prompt}")
-
+            top_prompts = sorted(history, key=lambda x: x.get("rating", 0), reverse=True)[:5] 
             modified_prompts = [modify_prompt(
-                prompt, best_examples, summary) for _ in range(images_per_prompt)]
-
+                prompt, best_examples, summary, top_prompts) for _ in range(images_per_prompt)]
+            
             image_paths = []
             image_threads: List[threading.Thread] = []
             for i, mod_prompt in enumerate(modified_prompts):
@@ -292,6 +307,9 @@ def pipeline(prompts: List[str],
             history_path.write_text(json.dumps(history, indent=4))
             best_examples = sorted(
                 history, key=lambda x: x["rating"], reverse=True)[:best_n]
+
+
+
 
 
 def main():
