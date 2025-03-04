@@ -6,7 +6,18 @@ import pandas as pd
 
 thisdir = pathlib.Path(__file__).parent.resolve()
 
-
+"""
+This script is used to analyze the data collected from the user study.
+The data is stored in a JSON file, where each item is a dictionary with the following keys
+- iteration: the iteration number
+- original_prompt: the original prompt
+- modified_prompt: the modified prompt
+- image_path: the path to the generated image
+- ratings: a list of dictionaries, each containing the following
+    - user: the user number
+    - rating: the rating given by the user
+    - explanation: the explanation given by the user
+"""
 def main():
     # Load the data
     history_path = thisdir / "history.json"
