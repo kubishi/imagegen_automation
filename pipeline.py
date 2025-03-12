@@ -6,12 +6,10 @@ import json
 from typing import Any, Callable, List, Dict, Optional, Union
 from matplotlib import pyplot as plt
 from pydantic import BaseModel
-import requests
 import openai
 import os
 import dotenv
 import shutil
-import threading
 
 from imagegen_flux import generate_image
 # from imagegen_openai import generate_image
@@ -284,7 +282,6 @@ def pipeline(prompts: List[str],
             ]
             
             image_paths = []
-            image_threads: List[threading.Thread] = []
             for i, mod_prompt in enumerate(modified_prompts):
                 save_path = images_path / f"{sanitize_string(prompt)}/iteration_{iteration}/image_{i}.png"
                 if save_path.exists():
@@ -292,10 +289,7 @@ def pipeline(prompts: List[str],
                     image_paths.append(str(save_path))
                     continue
 
-                # generate_image(mod_prompt, save_path)
-                thread = threading.Thread(target=generate_image, args=(mod_prompt, save_path))
-                thread.start()
-                image_threads.append(thread)
+                generate_image(mod_prompt, save_path)
 
                 history.append({
                     "iteration": iteration,
@@ -305,14 +299,6 @@ def pipeline(prompts: List[str],
 
                 })
                 history_path.write_text(json.dumps(history, indent=4, ensure_ascii=False))
-
-            for thread in image_threads:
-                thread.join()
-
-            # # upload images
-            # for item in history:
-            #     if not item.get("url"):
-            #         item["url"] = upload_file(pathlib.Path(item["image_path"]))
 
             rate_images(history, num_users=num_users, rating_funcs=rating_func)
             history_path.write_text(json.dumps(history, indent=4, ensure_ascii=False))
