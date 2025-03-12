@@ -13,30 +13,15 @@ import dotenv
 import shutil
 import threading
 
+from imagegen_flux import generate_image
+# from imagegen_openai import generate_image
+
 # loading environment variables
 dotenv.load_dotenv()
 
 # defining the path to the current directory
 thisdir = pathlib.Path(__file__).parent.absolute()
 client = openai.Client(api_key=os.getenv("OPEN_API_KEY"))
-
-
-# generating images using OpenAI's DALL-E model
-def generate_image(prompt: str, save_path: str) -> None:
-    response = client.images.generate(
-        model="dall-e-3",
-        prompt=prompt,
-        size="1024x1024",
-        quality="standard",
-        n=1,
-    )
-
-    image_url = response.data[0].url
-    image = requests.get(image_url)
-
-    path = pathlib.Path(save_path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_bytes(image.content)
 
 class Rating(BaseModel):
     summary: str

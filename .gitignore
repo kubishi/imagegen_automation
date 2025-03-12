@@ -1,4 +1,8 @@
-imagegen/images
+*.json
+images
+*.png
+*.jpg
+*.jpeg
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
