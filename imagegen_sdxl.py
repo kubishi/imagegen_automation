@@ -1,27 +1,32 @@
 import torch
-from diffusers import FluxPipeline
+from diffusers import StableDiffusionXLPipeline
 from torch.cuda import empty_cache
 import pathlib
 from uuid import uuid4
-from huggingface_hub import login
-
+from huggingface_hub import snapshot_download
 
 thisdir = pathlib.Path(__file__).parent.absolute()
 
-# log in with hugging face - only need to do this first time
-# login()
 cache_dir = pathlib.Path("/home/c_kpathak1@lmumain.edu/.cache/huggingface/hub")
-loraspath = pathlib.Path("/data/share/models/sd-loras")
+# loraspath = pathlib.Path("/data/share/models/sdxl-loras")
+# lora_path = loraspath / "lcm-lora-sdxl"
 
-pipe = FluxPipeline.from_pretrained(
-    "black-forest-labs/FLUX.1-dev", 
+# if not lora_path.exists():
+#     snapshot_download(repo_id="latent-consistency/lcm-lora-sdxl", local_dir=str(lora_path))
+
+pipe = StableDiffusionXLPipeline.from_pretrained(
+    "stabilityai/stable-diffusion-xl-base-1.0", 
     torch_dtype=torch.bfloat16, 
-    device_map="balanced",
+    use_safetensors=True,
     cache_dir=cache_dir
-)
-# lora_path = loraspath / "char_portraits_flux_lora_v1"
+).to("cuda")
+
+# pipe.scheduler = LCMScheduler.from_config(pipe.scheduler.config)
+
+# # Load and fuse the LCM-LoRA weights
 # pipe.load_lora_weights(str(lora_path))
 # pipe.fuse_lora()
+
 
 # Image generation function
 def generate_image(prompt: str, save_path: pathlib.Path):
@@ -29,10 +34,9 @@ def generate_image(prompt: str, save_path: pathlib.Path):
         prompt,
         height=1024,
         width=1024,
-        guidance_scale=3.5,
-        num_inference_steps=30,
-        max_sequence_length=512,
-        generator=torch.Generator("cpu").manual_seed(0),
+        guidance_scale=8.0, # guidance scale controls how strongly the image follows the text prompt
+        num_inference_steps=35, # more steps -> higher quality, slower generation
+        generator=torch.Generator("cuda").manual_seed(0),
         num_images_per_prompt=1,
     ).images[0]
 

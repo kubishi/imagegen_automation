@@ -8,7 +8,7 @@ import os
 dotenv.load_dotenv()
 
 # Set up OpenAI API key
-client = openai.Client(api_key=os.getenv("OPENAI_API_KEY"))
+client = openai.Client(api_key=os.getenv("OPEN_API_KEY"))
 
 
 def generate_image(prompt: str, save_path: str) -> None:
