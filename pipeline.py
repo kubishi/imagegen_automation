@@ -13,7 +13,8 @@ import shutil
 
 #from imagegen_flux import generate_image
 #from imagegen_openai import generate_image
-from imagegen_sdxl import generate_image
+#from imagegen_sdxl import generate_image
+from imagegen_rv import generate_image
 
 # loading environment variables
 dotenv.load_dotenv()
