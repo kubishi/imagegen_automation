@@ -5,76 +5,82 @@ import matplotlib.pyplot as plt
 import pathlib
 from sklearn.metrics.pairwise import euclidean_distances
 
+# Root directory of all experiments
 thisdir = pathlib.Path(__file__).parent.resolve()
-experiment_path = thisdir / "experiments" / "Experiment001"
-history_path = experiment_path / "history.json"
-agents_path = experiment_path / "agents.json"
-
-# Load data
-with open(history_path) as f:
-    history = json.load(f)
-with open(agents_path) as f:
-    agents = json.load(f)
-
-# Prepare agent preferences
-agent_df = pd.DataFrame([
-    {
-        "user_id": agent["user_id"],
-        **agent["preferences"]
-    }
-    for agent in agents
-])
-agent_df["user_index"] = agent_df["user_id"].str.extract(r"(\d+)").astype(int)
-
-# Organize by run
-runs = {}
-for entry in history:
-    prompt = entry["original_prompt"]
-    run_key = entry["image_path"].split("/")[7]  # Should uniquely identify the run
-    iteration = entry["iteration"]
-    
-    runs.setdefault((prompt, run_key), []).append({
-        "iteration": iteration,
-        "ratings": entry.get("ratings", [])
-    })
-
+experiments_root = thisdir / "experiments"
+graphs_path = experiments_root / "graphs"
+graphs_path.mkdir(exist_ok=True)
 
 results = []
 
-for (prompt, run_id), records in runs.items():
-    records_sorted = sorted(records, key=lambda x: x["iteration"])
-    final_iter = max(r["iteration"] for r in records)
-    final_records = [r for r in records if r["iteration"] == final_iter]
-    
-    if not final_records:
-        continue
-    
-    # All users in this run
-    final_ratings = final_records[0]["ratings"]
-    user_ids = list(range(len(final_ratings)))  # assume user_0 to user_4
-    user_prefs = agent_df[agent_df["user_index"].isin(user_ids)].sort_values("user_index").drop(columns=["user_id", "user_index"])
-    
-    if user_prefs.shape[0] != 5:
+# Iterate through all ExperimentXXX folders
+for experiment_path in sorted(experiments_root.glob("Experiment*")):
+    history_path = experiment_path / "history.json"
+    agents_path = experiment_path / "agents.json"
+
+    if not history_path.exists() or not agents_path.exists():
+        print(f"Skipping {experiment_path.name} (missing history or agents)")
         continue
 
-    # Compute user similarity
-    centroid = user_prefs.mean().values.reshape(1, -1)
-    agreement = euclidean_distances(user_prefs.values, centroid).mean()
+    # Load history and agents
+    with open(history_path) as f:
+        history = json.load(f)
+    with open(agents_path) as f:
+        agents = json.load(f)
 
-    # Compute average final quality
-    quality_scores = [r["rating"] for r in final_ratings]
-    final_quality = np.mean(quality_scores)
+    # Convert agents to DataFrame
+    agent_df = pd.DataFrame([
+        {"user_id": agent["user_id"], **agent["preferences"]}
+        for agent in agents
+    ])
+    agent_df["user_index"] = agent_df["user_id"].str.extract(r"(\d+)").astype(int)
 
-    results.append({
-        "prompt": prompt,
-        "run_id": run_id,
-        "user_agreement": agreement,
-        "final_quality": final_quality
-    })
+    # Group image data by (prompt, run_key)
+    runs = {}
+    for entry in history:
+        prompt = entry["original_prompt"]
+        run_key = pathlib.Path(entry["image_path"]).parts[-3]  # folder like "A_Native_American_boy_going_to_school"
+        iteration = entry["iteration"]
+        runs.setdefault((prompt, run_key), []).append({
+            "iteration": iteration,
+            "ratings": entry.get("ratings", [])
+        })
 
+    # Process each run
+    for (prompt, run_id), records in runs.items():
+        records_sorted = sorted(records, key=lambda x: x["iteration"])
+        final_iter = max(r["iteration"] for r in records)
+        final_records = [r for r in records if r["iteration"] == final_iter]
+
+        if not final_records:
+            continue
+
+        final_ratings = final_records[0]["ratings"]
+        user_ids = list(range(len(final_ratings)))
+        user_prefs = agent_df[agent_df["user_index"].isin(user_ids)].sort_values("user_index").drop(columns=["user_id", "user_index"])
+        if user_prefs.shape[0] != 5:
+            continue
+
+        # Compute user agreement (average distance to centroid)
+        centroid = user_prefs.mean().values.reshape(1, -1)
+        agreement = euclidean_distances(user_prefs.values, centroid).mean()
+
+        # Compute final image quality (avg rating)
+        quality_scores = [r["rating"] for r in final_ratings]
+        final_quality = np.mean(quality_scores)
+
+        results.append({
+            "prompt": prompt,
+            "run_id": experiment_path.name,
+            "user_agreement": agreement,
+            "final_quality": final_quality
+        })
+       
+# Compile all results into a DataFrame
 results_df = pd.DataFrame(results)
+print(results_df)
 
-# Plot for each prompt
+# Plot graphs per prompt
 for prompt in results_df["prompt"].unique():
     subset = results_df[results_df["prompt"] == prompt]
     fig, ax = plt.subplots(figsize=(8, 6))
@@ -91,12 +97,17 @@ for prompt in results_df["prompt"].unique():
     ax.set_title(f"User Agreement vs Final Image Quality\nPrompt: {prompt}")
     ax.grid(True)
     plt.tight_layout()
-    plt.savefig(experiment_path / "user_rating_vs_agreement_curve.png")
 
-print("Run-Level Summary:")
-print(results_df)
+    # Save per-prompt graph
+    safe_name = prompt.replace(" ", "_").replace("/", "_")
+    plt.savefig(graphs_path / f"user_rating_vs_agreement_{safe_name}.png")
 
-# Save run level summary to CSV
-results_df.to_csv(experiment_path / "run_level_summary.csv", index=False)
+# Save results to CSV
+results_df.to_csv(experiments_root / "run_level_summary.csv", index=False)
+
+# Print preview
+print("\nRun-Level Summary:")
+print(results_df.head())
+
 
 

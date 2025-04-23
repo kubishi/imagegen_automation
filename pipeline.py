@@ -309,57 +309,58 @@ def generate_system_prompt() -> str:
 def create_experiment_dir(root: pathlib.Path) -> pathlib.Path:
     root.mkdir(parents=True, exist_ok=True)
 
-    existing_runs = [
-        int(p.name.split("_")[1]) for p in root.iterdir()
-        if p.is_dir() and p.name.startswith("run_") and p.name.split("_")[1].isdigit()
-    ]
+    existing_runs = sorted([
+        int(p.name.split("Experiment")[1]) 
+        for p in root.glob("Experiment*") 
+        if p.is_dir() and p.name.startswith("Experiment") and p.name.split("Experiment")[1].isdigit()
+    ])
 
     next_run_number = max(existing_runs, default=0) + 1
     run_name = f"Experiment{next_run_number:03d}"
     exp_dir = root / run_name
-    exp_dir.mkdir(parents=True, exist_ok=True)
+    exp_dir.mkdir(parents=True, exist_ok=False)
     return exp_dir
 
-def main():
+def run_multiple_experiments(num_runs: int = 10):
 
     root_dir = thisdir / "experiments"
-    experiment_dir = create_experiment_dir(root_dir)
-
-
     prompt_path = thisdir / "prompts.json"
-    prompts: List[str] = json.loads(prompt_path.read_text())
+    prompts: List[str] = json.loads(prompt_path.read_text())[:5]  # Use 5 prompts
 
-    agents_path = experiment_dir / "agents.json"
-    num_agents = 5
+    for prompt in prompts:
+        for run in range(num_runs):
+            print(f"\nPrompt: '{prompt}' | Run {run + 1}/{num_runs}")
+            experiment_dir = create_experiment_dir(root_dir)
+            agents_path = experiment_dir / "agents.json"
+            num_agents = 5
 
-    agents = []
-    auto_rate_funcs = []
-    for i in range(num_agents):
-        system_prompt, preferences = generate_system_prompt()
-        agent = RatingAgent(
-            user_id=f"agent_{i}",
-            preferences=preferences,
-            system_prompt=system_prompt
-        )
-        agents.append(agent)
-        auto_rate_funcs.append(
-            partial(auto_rate, model="gpt-4o-mini", system_prompt=system_prompt)
-        )
-    
-    with open(agents_path, "w") as f:
-        json.dump([a.dict() for a in agents], f, indent=4, ensure_ascii=False)
+            agents = []
+            auto_rate_funcs = []
+            for i in range(num_agents):
+                system_prompt, preferences = generate_system_prompt()
+                agent = RatingAgent(
+                    user_id=f"agent_{i}",
+                    preferences=preferences,
+                    system_prompt=system_prompt
+                )
+                agents.append(agent)
+                auto_rate_funcs.append(
+                    partial(auto_rate, model="gpt-4o-mini", system_prompt=system_prompt)
+                )
 
+            with open(agents_path, "w") as f:
+                json.dump([a.dict() for a in agents], f, indent=4, ensure_ascii=False)
 
-    pipeline(
-            prompts=prompts[:5],
-            iterations=10,
-            images_per_prompt=4,
-            best_n=3,
-            num_users=len(agents),
-            overwrite=True,
-            rating_func=auto_rate_funcs,
-            experiment_dir=experiment_dir
-        )
+            pipeline(
+                prompts=[prompt],
+                iterations=5,
+                images_per_prompt=2,
+                best_n=3,
+                num_users=num_agents,
+                overwrite=True,
+                rating_func=auto_rate_funcs,
+                experiment_dir=experiment_dir
+            )
 
 if __name__ == "__main__":
-    main()
+    run_multiple_experiments(num_runs=10)
