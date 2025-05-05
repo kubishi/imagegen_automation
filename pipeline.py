@@ -306,6 +306,66 @@ def generate_system_prompt() -> str:
     )
     return appendix, preferences
 
+def create_custom_agents(num_agents: int, shared_trait: str = "realism", shared_value: int = 2) -> List[RatingAgent]:
+    values_options = {
+        "realism": 2,
+        "traditional": [1, 2, 3, 4, 5],
+        "stereotypes": [1, 2, 3, 4, 5],
+        "colorful": [1, 2, 3, 4, 5],
+        "adherance": [1, 2, 3, 4, 5],
+    }
+
+    agents = []
+    for i in range(num_agents):
+        prefs = {}
+        for k in values_options:
+            if k == shared_trait:
+                prefs[k] = shared_value  # everyone agrees on cartoon (realism=2)
+            else:
+                prefs[k] = random.choice(values_options[k])  # vary others
+
+        descriptions = {
+            "realism": {
+                1: "Likes very abstract art and doesn't like photorealism",
+                2: "Prefers cartoon images over photorealistic ones",
+                3: "Likes realistic and cartoon/abstract art",
+                4: "Prefers photorealism",
+                5: "Only like hyper-realistic art (photorealism)"
+            },
+            "traditional": {
+                1: "Prefers no traditional cultural elements in the image",
+                2: "Slight interest in traditional elements",
+                3: "Neutral toward traditional cultural representation",
+                4: "Often appreciates traditional cultural elements",
+                5: "Strong preference for rich traditional cultural representation"
+            },
+            "stereotypes": {
+                1: "Not sensitive to stereotypes",
+                2: "Mildly aware of stereotypes but not bothered",
+                3: "Balanced view on stereotypes",
+                4: "Prefers avoiding stereotypical representations",
+                5: "Highly sensitive to and avoids stereotypes in art"
+            },
+            "colorful": {
+                1: "Prefers muted or monochrome color schemes",
+                2: "Leans toward soft, less saturated colors",
+                3: "Likes both muted and vivid colors",
+                4: "Enjoys bright and vivid colors",
+                5: "Strong preference for highly colorful, vibrant art"
+            },
+            "adherance": {
+                1: "Prefers loose or creative interpretation of prompts",
+                2: "Values creativity over strict adherence",
+                3: "Balanced between prompt following and creativity",
+                4: "Prefers closely following the prompt",
+                5: "Requires strict and literal adherence to prompts"
+            }
+        }
+        description_text = json.dumps({k: descriptions[k][v] for k, v in prefs.items()}, ensure_ascii=False)
+        system_prompt = f"You are an art reviewer with the following preferences: {description_text}"
+        agents.append(RatingAgent(user_id=f"agent_{i}", preferences=prefs, system_prompt=system_prompt))
+    return agents
+
 def create_experiment_dir(root: pathlib.Path) -> pathlib.Path:
     root.mkdir(parents=True, exist_ok=True)
 
@@ -325,7 +385,7 @@ def run_multiple_experiments(num_runs: int = 10):
 
     root_dir = thisdir / "experiments"
     prompt_path = thisdir / "prompts.json"
-    prompts: List[str] = json.loads(prompt_path.read_text())[:5]  # Use 5 prompts
+    prompts: List[str] = json.loads(prompt_path.read_text())[:3]  # Use 5 prompts
 
     for prompt in prompts:
         for run in range(num_runs):
@@ -334,19 +394,25 @@ def run_multiple_experiments(num_runs: int = 10):
             agents_path = experiment_dir / "agents.json"
             num_agents = 5
 
-            agents = []
-            auto_rate_funcs = []
-            for i in range(num_agents):
-                system_prompt, preferences = generate_system_prompt()
-                agent = RatingAgent(
-                    user_id=f"agent_{i}",
-                    preferences=preferences,
-                    system_prompt=system_prompt
-                )
-                agents.append(agent)
-                auto_rate_funcs.append(
-                    partial(auto_rate, model="gpt-4o-mini", system_prompt=system_prompt)
-                )
+            # agents = []
+            # auto_rate_funcs = []
+            # for i in range(num_agents):
+            #     system_prompt, preferences = generate_system_prompt()
+            #     agent = RatingAgent(
+            #         user_id=f"agent_{i}",
+            #         preferences=preferences,
+            #         system_prompt=system_prompt
+            #     )
+            #     agents.append(agent)
+            #     auto_rate_funcs.append(
+            #         partial(auto_rate, model="gpt-4o-mini", system_prompt=system_prompt)
+            #     )
+
+            agents = create_custom_agents(num_agents, shared_trait="realism", shared_value=2)
+            auto_rate_funcs = [
+                partial(auto_rate, model="gpt-4o-mini", system_prompt=agent.system_prompt)
+                for agent in agents
+            ]
 
             with open(agents_path, "w") as f:
                 json.dump([a.dict() for a in agents], f, indent=4, ensure_ascii=False)

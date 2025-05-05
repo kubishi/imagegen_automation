@@ -86,11 +86,13 @@ for prompt in results_df["prompt"].unique():
     fig, ax = plt.subplots(figsize=(8, 6))
     ax.scatter(subset["user_agreement"], subset["final_quality"], color='blue', s=100)
 
-    if len(subset) >= 3:
-        z = np.polyfit(subset["user_agreement"], subset["final_quality"], 2)
-        x_curve = np.linspace(subset["user_agreement"].min(), subset["user_agreement"].max(), 100)
-        y_curve = np.polyval(z, x_curve)
-        ax.plot(x_curve, y_curve, linestyle='--', color='gray')
+    if len(subset) >= 2:
+        coeffs = np.polyfit(subset["user_agreement"], subset["final_quality"], 1)
+        x_vals = np.array([subset["user_agreement"].min(), subset["user_agreement"].max()])
+        y_vals = np.polyval(coeffs, x_vals)
+        ax.plot(x_vals, y_vals, linestyle='--', color='red', label="Linear Fit")
+        ax.legend()
+
 
     ax.set_xlabel("User Agreement (Avg. Euclidean Distance)")
     ax.set_ylabel("Final Image Quality (Avg. Rating at Iteration 10)")
